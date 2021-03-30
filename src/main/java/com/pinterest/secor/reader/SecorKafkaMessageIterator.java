@@ -54,7 +54,6 @@ public class SecorKafkaMessageIterator implements KafkaMessageIterator, Rebalanc
     private static final Logger LOG = LoggerFactory.getLogger(SecorKafkaMessageIterator.class);
     private KafkaConsumer<byte[], byte[]> mKafkaConsumer;
     private Deque<ConsumerRecord<byte[], byte[]>> mRecordsBatch;
-    private ZookeeperConnector mZookeeperConnector;
     private int mPollTimeout;
 
     @Override
@@ -119,7 +118,6 @@ public class SecorKafkaMessageIterator implements KafkaMessageIterator, Rebalanc
         optionalConfig(config.getSslTruststoreType(), conf -> props.put("ssl.truststore.type", conf));
         optionalConfig(config.getNewConsumerPartitionAssignmentStrategyClass(), conf -> props.put("partition.assignment.strategy", conf));
 
-        mZookeeperConnector = new ZookeeperConnector(config);
         mRecordsBatch = new ArrayDeque<>();
         mKafkaConsumer = new KafkaConsumer<>(props);
     }
@@ -143,7 +141,7 @@ public class SecorKafkaMessageIterator implements KafkaMessageIterator, Rebalanc
 
     @Override
     public void subscribe(RebalanceHandler handler, SecorConfig config) {
-        ConsumerRebalanceListener reBalanceListener = new SecorConsumerRebalanceListener(mKafkaConsumer, mZookeeperConnector, getSkipZookeeperOffsetSeek(config), config.getNewConsumerAutoOffsetReset(), handler);
+        ConsumerRebalanceListener reBalanceListener = new SecorConsumerRebalanceListener(handler);
 
         String[] subscribeList = config.getKafkaTopicList();
         if (subscribeList.length == 0 || Strings.isNullOrEmpty(subscribeList[0])) {
@@ -151,12 +149,6 @@ public class SecorKafkaMessageIterator implements KafkaMessageIterator, Rebalanc
         } else {
             mKafkaConsumer.subscribe(Arrays.asList(subscribeList), reBalanceListener);
         }
-    }
-
-    private boolean getSkipZookeeperOffsetSeek(SecorConfig config) {
-        String dualCommitEnabled = config.getDualCommitEnabled();
-        String offsetStorage = config.getOffsetsStorage();
-        return offsetStorage.equals("kafka") && dualCommitEnabled.equals("false");
     }
 
     @Override

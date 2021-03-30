@@ -176,12 +176,7 @@ about the message is recorded.
 
 The [SequenceFile](https://wiki.apache.org/hadoop/SequenceFile) format writes out the message body in the **value** 
 field of the SequenceFile record.  It supports two different modes for storing additional metadata in the **key**
-field of the SequenceFile. 
-
-#### Legacy
-
-In the default, legacy mode, the kafka partition offset is stored in the key field as an 8 byte long value in big 
-endian format.
+field of the SequenceFile.
 
 #### MessagePack
 

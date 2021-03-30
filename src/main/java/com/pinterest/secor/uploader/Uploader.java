@@ -24,7 +24,6 @@ import com.pinterest.secor.common.FileRegistry;
 import com.pinterest.secor.common.LogFilePath;
 import com.pinterest.secor.common.OffsetTracker;
 import com.pinterest.secor.common.SecorConfig;
-import com.pinterest.secor.common.SecorConstants;
 import com.pinterest.secor.common.TopicPartition;
 import com.pinterest.secor.common.ZookeeperConnector;
 import com.pinterest.secor.io.FileReader;
@@ -35,15 +34,14 @@ import com.pinterest.secor.reader.MessageReader;
 import com.pinterest.secor.util.CompressionUtil;
 import com.pinterest.secor.util.IdUtil;
 import com.pinterest.secor.util.ReflectionUtil;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.joda.time.DateTime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
 
 /**
  * Uploader applies a set of policies to determine if any of the locally stored files should be
@@ -62,12 +60,7 @@ public class Uploader {
     protected UploadManager mUploadManager;
     protected MessageReader mMessageReader;
     private DeterministicUploadPolicyTracker mDeterministicUploadPolicyTracker;
-    private boolean mUploadLastSeenOffset;
     protected String mTopicFilter;
-
-    private boolean isOffsetsStorageKafka = false;
-    private boolean isOffsetsStorageZookeeper = false;
-
 
     /**
      * Init the Uploader with its dependent objects.
@@ -101,13 +94,6 @@ public class Uploader {
         mTopicFilter = mConfig.getKafkaTopicUploadAtMinuteMarkFilter();
         mMetricCollector = metricCollector;
         mDeterministicUploadPolicyTracker = deterministicUploadPolicyTracker;
-        if (mConfig.getOffsetsStorage().equals(SecorConstants.KAFKA_OFFSETS_STORAGE_KAFKA)) {
-            isOffsetsStorageKafka = true;
-        }
-        mUploadLastSeenOffset = mConfig.getUploadLastSeenOffset();
-        if (mConfig.getOffsetsStorage().equals(SecorConstants.KAFKA_OFFSETS_STORAGE_ZK) || mConfig.getDualCommitEnabled().equals("true")) {
-            isOffsetsStorageZookeeper = true;
-        }
     }
 
     protected void uploadFiles(TopicPartition topicPartition) throws Exception {
@@ -129,33 +115,6 @@ public class Uploader {
             // Check if the committed offset has changed.
             long remoteComittedOffsetCount = getRemoteComittedOffsetCount(topicPartition);
             if (remoteComittedOffsetCount == committedOffsetCount) {
-                //This is probably not possible in Kafka without zookeeper
-                if (mUploadLastSeenOffset && isOffsetsStorageZookeeper) {
-                    long zkLastSeenOffset = mZookeeperConnector.getLastSeenOffsetCount(topicPartition);
-                    // If the in-memory lastSeenOffset is less than ZK's, this means there was a failed
-                    // attempt uploading for this topic partition and we already have some files uploaded
-                    // on S3, e.g.
-                    //     s3n://topic/partition/day/hour=0/offset1
-                    //     s3n://topic/partition/day/hour=1/offset1
-                    // Since our in-memory accumulated files (offsets) is less than what's on ZK, we
-                    // might have less files to upload, e.g.
-                    //     localfs://topic/partition/day/hour=0/offset1
-                    // If we continue uploading, we will upload this file:
-                    //     s3n://topic/partition/day/hour=0/offset1
-                    // But the next file to be uploaded will become:
-                    //     s3n://topic/partition/day/hour=1/offset2
-                    // So we will end up with 2 different files for hour=1/
-                    // We should wait a bit longer to have at least getting to the same offset as ZK's
-                    //
-                    // Note We use offset + 1 throughout secor when we persist to ZK
-                    if (lastSeenOffset + 1 < zkLastSeenOffset) {
-                        LOG.warn("TP {}, ZK lastSeenOffset {}, in-memory lastSeenOffset {}, skip uploading this time",
-                            topicPartition, zkLastSeenOffset, lastSeenOffset + 1);
-                        mMetricCollector.increment("uploader.offset_delays", topicPartition.getTopic());
-                    }
-                    LOG.info("Setting lastSeenOffset for {} with {}", topicPartition, lastSeenOffset + 1);
-                    mZookeeperConnector.setLastSeenOffsetCount(topicPartition, lastSeenOffset + 1);
-                }
                 LOG.info("uploading topic {} partition {}", topicPartition.getTopic(), topicPartition.getPartition());
                 // Deleting writers closes their streams flushing all pending data to the disk.
                 mFileRegistry.deleteWriters(topicPartition);
@@ -178,14 +137,7 @@ public class Uploader {
                 }
 
                 mOffsetTracker.setCommittedOffsetCount(topicPartition, lastSeenOffset + 1);
-
-                if (isOffsetsStorageKafka) {
-                    mMessageReader.commit(topicPartition, lastSeenOffset + 1);
-                }
-
-                if (isOffsetsStorageZookeeper) {
-                    mZookeeperConnector.setCommittedOffsetCount(topicPartition, lastSeenOffset + 1);
-                }
+                mMessageReader.commit(topicPartition, lastSeenOffset + 1);
 
                 mMetricCollector.increment("uploader.file_uploads.count", paths.size(), topicPartition.getTopic());
             } else {
@@ -355,13 +307,8 @@ public class Uploader {
         return mConfig.getMaxActiveFiles() > -1 && fileCount > mConfig.getMaxActiveFiles();
     }
 
-    private long getRemoteComittedOffsetCount(TopicPartition topicPartition) throws Exception {
-        //If storing offsets in Zookeeper is enabled we are going to always use those offsets.
-        if (isOffsetsStorageZookeeper) {
-            return mZookeeperConnector.getCommittedOffsetCount(topicPartition);
-        } else {
-            return mMessageReader.getCommitedOffsetCount(topicPartition);
-        }
+    private long getRemoteComittedOffsetCount(TopicPartition topicPartition) {
+        return mMessageReader.getCommitedOffsetCount(topicPartition);
     }
 
     /**

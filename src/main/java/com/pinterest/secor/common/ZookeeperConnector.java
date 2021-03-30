@@ -55,6 +55,7 @@ public class ZookeeperConnector implements Closeable {
     private String mLastSeenOffsetGroupPath;
 
     protected ZookeeperConnector() {
+
     }
 
     public ZookeeperConnector(SecorConfig config) {
@@ -79,20 +80,6 @@ public class ZookeeperConnector implements Closeable {
         if (mCurator != null) {
             mCurator.close();
         }
-    }
-
-    private Iterable<InetSocketAddress> getZookeeperAddresses() {
-        String zookeeperQuorum = mConfig.getZookeeperQuorum();
-        String[] hostports = zookeeperQuorum.split(",");
-        LinkedList<InetSocketAddress> result = new LinkedList<InetSocketAddress>();
-        for (String hostport : hostports) {
-            String[] elements = hostport.split(":");
-            assert elements.length == 2: Integer.toString(elements.length) + " == 2";
-            String host = elements[0];
-            int port = Integer.parseInt(elements[1]);
-            result.add(InetSocketAddress.createUnresolved(host, port));
-        }
-        return result;
     }
 
     public void lock(String lockPath) {
@@ -149,17 +136,8 @@ public class ZookeeperConnector implements Closeable {
         return getCommittedOffsetGroupPath() + "/" + topic;
     }
 
-    private String getLastSeenOffsetTopicPath(String topic) {
-        return getLastSeenOffsetGroupPath() + "/" + topic;
-    }
-
     private String getCommittedOffsetPartitionPath(TopicPartition topicPartition) {
         return getCommittedOffsetTopicPath(topicPartition.getTopic()) + "/" +
-            topicPartition.getPartition();
-    }
-
-    private String getLastSeenOffsetPartitionPath(TopicPartition topicPartition) {
-        return getLastSeenOffsetTopicPath(topicPartition.getTopic()) + "/" +
             topicPartition.getPartition();
     }
 
@@ -172,65 +150,6 @@ public class ZookeeperConnector implements Closeable {
             LOG.warn("path {} does not exist in zookeeper", offsetPath);
             return -1;
         }
-    }
-
-    public long getLastSeenOffsetCount(TopicPartition topicPartition) throws Exception {
-        String offsetPath = getLastSeenOffsetPartitionPath(topicPartition);
-        try {
-            byte[] data = mCurator.getData().forPath(offsetPath);
-            return Long.parseLong(new String(data));
-        } catch (KeeperException.NoNodeException exception) {
-            LOG.warn("path {} does not exist in zookeeper", offsetPath);
-            return -1;
-        }
-    }
-
-    public List<Integer> getCommittedOffsetPartitions(String topic) throws Exception {
-        String topicPath = getCommittedOffsetTopicPath(topic);
-        List<String> partitions = mCurator.getChildren().forPath(topicPath);
-        LinkedList<Integer> result = new LinkedList<Integer>();
-        for (String partitionPath : partitions) {
-            String[] elements = partitionPath.split("/");
-            String partition = elements[elements.length - 1];
-            result.add(Integer.valueOf(partition));
-        }
-        return result;
-    }
-
-    public List<Integer> getLastSeenOffsetPartitions(String topic) throws Exception {
-        String topicPath = getLastSeenOffsetTopicPath(topic);
-        List<String> partitions = mCurator.getChildren().forPath(topicPath);
-        LinkedList<Integer> result = new LinkedList<Integer>();
-        for (String partitionPath : partitions) {
-            String[] elements = partitionPath.split("/");
-            String partition = elements[elements.length - 1];
-            result.add(Integer.valueOf(partition));
-        }
-        return result;
-    }
-
-    public List<String> getCommittedOffsetTopics() throws Exception {
-        String offsetPath = getCommittedOffsetGroupPath();
-        List<String> topics = mCurator.getChildren().forPath(offsetPath);
-        LinkedList<String> result = new LinkedList<String>();
-        for (String topicPath : topics) {
-            String[] elements = topicPath.split("/");
-            String topic = elements[elements.length - 1];
-            result.add(topic);
-        }
-        return result;
-    }
-
-    public List<String> getLastSeenOffsetTopics() throws Exception {
-        String offsetPath = getLastSeenOffsetGroupPath();
-        List<String> topics = mCurator.getChildren().forPath(offsetPath);
-        LinkedList<String> result = new LinkedList<String>();
-        for (String topicPath : topics) {
-            String[] elements = topicPath.split("/");
-            String topic = elements[elements.length - 1];
-            result.add(topic);
-        }
-        return result;
     }
 
     private void createMissingParents(String path) throws Exception {
@@ -257,55 +176,6 @@ public class ZookeeperConnector implements Closeable {
         } catch (KeeperException.NoNodeException exception) {
             LOG.warn("Failed to set value to path " + offsetPath, exception);
         }
-    }
-
-    public void setLastSeenOffsetCount(TopicPartition topicPartition, long count)
-        throws Exception {
-        String offsetPath = getLastSeenOffsetPartitionPath(topicPartition);
-        LOG.info("creating missing parents for zookeeper path {}", offsetPath);
-        createMissingParents(offsetPath);
-        byte[] data = Long.toString(count).getBytes();
-        try {
-            LOG.info("setting zookeeper path {} value {}", offsetPath, count);
-            // -1 matches any version
-            mCurator.setData().forPath(offsetPath, data);
-        } catch (KeeperException.NoNodeException exception) {
-            LOG.warn("Failed to set value to path " + offsetPath, exception);
-        }
-    }
-
-    public void deleteCommittedOffsetTopicCount(String topic) throws Exception {
-        List<Integer> partitions = getCommittedOffsetPartitions(topic);
-        for (Integer partition : partitions) {
-            TopicPartition topicPartition = new TopicPartition(topic, partition);
-            String offsetPath = getCommittedOffsetPartitionPath(topicPartition);
-            LOG.info("deleting path {}", offsetPath);
-            mCurator.delete().forPath(offsetPath);
-        }
-    }
-
-    public void deleteLastSeenOffsetTopicCount(String topic) throws Exception {
-        List<Integer> partitions = getLastSeenOffsetPartitions(topic);
-        for (Integer partition : partitions) {
-            TopicPartition topicPartition = new TopicPartition(topic, partition);
-            String offsetPath = getLastSeenOffsetPartitionPath(topicPartition);
-            LOG.info("deleting path {}", offsetPath);
-            mCurator.delete().forPath(offsetPath);
-        }
-    }
-
-    public void deleteCommittedOffsetPartitionCount(TopicPartition topicPartition)
-            throws Exception {
-        String offsetPath = getCommittedOffsetPartitionPath(topicPartition);
-        LOG.info("deleting path {}", offsetPath);
-        mCurator.delete().forPath(offsetPath);
-    }
-
-    public void deleteLastSeenOffsetPartitionCount(TopicPartition topicPartition)
-        throws Exception {
-        String offsetPath = getLastSeenOffsetPartitionPath(topicPartition);
-        LOG.info("deleting path {}", offsetPath);
-        mCurator.delete().forPath(offsetPath);
     }
 
     protected void setConfig(SecorConfig config) {

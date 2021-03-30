@@ -26,7 +26,5 @@ public interface KafkaClient {
 
     Message getLastMessage(TopicPartition topicPartition) throws TException;
 
-    Message getCommittedMessage(TopicPartition topicPartition) throws Exception;
-
     void init(SecorConfig config);
 }

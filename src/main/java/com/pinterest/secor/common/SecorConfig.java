@@ -237,14 +237,6 @@ public class SecorConfig {
         return getString("kafka.fetch.wait.max.ms");
     }
 
-    public String getDualCommitEnabled() {
-        return getString("kafka.dual.commit.enabled");
-    }
-
-    public String getOffsetsStorage() {
-        return getString("kafka.offsets.storage");
-    }
-
     public boolean useKafkaTimestamp() {
         return getBoolean("kafka.useTimestamp", false);
     }

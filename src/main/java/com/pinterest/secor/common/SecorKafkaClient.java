@@ -20,17 +20,6 @@ package com.pinterest.secor.common;
 
 import com.pinterest.secor.message.Message;
 import com.pinterest.secor.message.MessageHeader;
-import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.KafkaAdminClient;
-import org.apache.kafka.clients.admin.TopicDescription;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.common.KafkaFuture;
-import org.apache.kafka.common.serialization.ByteArrayDeserializer;
-import org.apache.thrift.TException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,13 +28,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ExecutionException;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.KafkaAdminClient;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.serialization.ByteArrayDeserializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SecorKafkaClient implements KafkaClient {
     public static final int MAX_READ_POLL_ATTEMPTS = 10;
     private static final Logger LOG = LoggerFactory.getLogger(SecorKafkaClient.class);
     private KafkaConsumer<byte[], byte[]> mKafkaConsumer;
     private AdminClient mKafkaAdminClient;
-    private ZookeeperConnector mZookeeperConnector;
     private int mPollTimeout;
 
     @Override
@@ -62,21 +59,11 @@ public class SecorKafkaClient implements KafkaClient {
     }
 
     @Override
-    public Message getLastMessage(TopicPartition topicPartition) throws TException {
+    public Message getLastMessage(TopicPartition topicPartition) {
         org.apache.kafka.common.TopicPartition kafkaTopicPartition = new org.apache.kafka.common.TopicPartition(topicPartition.getTopic(), topicPartition.getPartition());
         mKafkaConsumer.assign(Collections.singleton(kafkaTopicPartition));
         long endOffset = mKafkaConsumer.endOffsets(Collections.singleton(kafkaTopicPartition)).get(kafkaTopicPartition);
         mKafkaConsumer.seek(kafkaTopicPartition, endOffset - 1);
-
-        return readSingleMessage(mKafkaConsumer);
-    }
-
-    @Override
-    public Message getCommittedMessage(TopicPartition topicPartition) throws Exception {
-        org.apache.kafka.common.TopicPartition kafkaTopicPartition = new org.apache.kafka.common.TopicPartition(topicPartition.getTopic(), topicPartition.getPartition());
-        mKafkaConsumer.assign(Collections.singleton(kafkaTopicPartition));
-        long committedOffset = mZookeeperConnector.getCommittedOffsetCount(topicPartition);
-        mKafkaConsumer.seek(kafkaTopicPartition, committedOffset - 1);
 
         return readSingleMessage(mKafkaConsumer);
     }
@@ -105,7 +92,6 @@ public class SecorKafkaClient implements KafkaClient {
 
     @Override
     public void init(SecorConfig config) {
-        mZookeeperConnector = new ZookeeperConnector(config);
         mPollTimeout = config.getNewConsumerPollTimeoutSeconds();
         Properties props = new Properties();
         props.put("bootstrap.servers", config.getKafkaSeedBrokerHost() + ":" + config.getKafkaSeedBrokerPort());
